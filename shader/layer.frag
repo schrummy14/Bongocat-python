@@ -1,10 +1,8 @@
-#version 330 core
-
-uniform sampler2D texture0;
-
+#version 330
 in vec2 v_uv;
-out vec4 f_color;
+uniform sampler2D texture0;
+out vec4 fragColor;
 
 void main() {
-    f_color = texture(texture0, v_uv);
+    fragColor = texture(texture0, v_uv);
 }
