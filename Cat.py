@@ -1,401 +1,346 @@
-import logging
-import threading
-import numpy as np
+import moderngl
 import glfw
-import OpenGL
-from OpenGL.GL import *
-from OpenGL.GLU import *
+import numpy as np
 import yaml
 import time
+import os
+import ctypes
 
-import pdb
+from pynput import keyboard as pynput_keyboard
+
+# WIN 32 API Imports
 import win32api
-import keyboard
+import win32gui
+import win32con
+import win32print
 
-from win32api import SetWindowLong,RGB
-from win32con import WS_EX_LAYERED,WS_EX_TRANSPARENT,GWL_EXSTYLE,LWA_ALPHA
-from win32gui import GetWindowLong,GetForegroundWindow,SetLayeredWindowAttributes,FindWindow
+# Win 高 DPI 支持
+ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
-# math_calc定义了常用的数学计算
-#from math_calc import *
-
-# 常用变换矩阵
-
-# 缩放矩阵
 def scale(x, y, z):
-    a = np.eye(4, dtype=np.float32)
+    a = np.eye(4, dtype="f4")
     a[0, 0] = x
     a[1, 1] = y
     a[2, 2] = z
     return a
 
-# 旋转矩阵
 def rotate(r, axis: tuple):
-    a = np.eye(4, dtype = np.float32)
-    a[axis[0], axis[0]] = np.cos(r)
-    a[axis[0], axis[1]] = np.sin(r)
-    a[axis[1], axis[0]] = - np.sin(r)
-    a[axis[1], axis[1]] = np.cos(r)
+    a = np.eye(4, dtype="f4") 
+    c, s = np.cos(r), np.sin(r) 
+    a[axis[0], axis[0]] = c
+    a[axis[0], axis[1]] = s 
+    a[axis[1], axis[0]] = -s
+    a[axis[1], axis[1]] = c
     return a
 
-# 平移矩阵
 def translate(x, y, z):
-    a = np.eye(4, dtype = np.float32)
+    a = np.eye(4, dtype="f4")
     a[3, 0] = x
     a[3, 1] = y
     a[3, 2] = z
     return a
 
-# 透视矩阵
-def perspective():
-    a = np.eye(4, dtype = np.float32)
-    a[2, 2] = 1 / 1000
-    a[3, 2] = -0.0001
-    a[2, 3] = 1
-    a[3, 3] = 0
-    return a
-
-# 逆透视矩阵
-def inperspective():
-    a = np.eye(4, dtype = np.float32)
-    a[2, 2] = 0
-    a[3, 2] = 1
-    a[2, 3] = -10000
-    a[3, 3] = 10
-    return a
-
-# 平移后旋转后再反向平移
-# 此函数用于绕指定轴旋转
-def tran_and_rot(dx, dy, rot):
-    view = perspective() @ translate(-dx, -dy, 0) @ inperspective()
-    view = view @ translate(0, 0, -0.3)
-    view = view @ rotate(rot[0], axis=(0, 2)) @ rotate(rot[1], axis=(2, 1)) @ rotate(rot[2], axis=(0, 1))
-    view = view @ translate(0,0,0.3)
-    view = view @ perspective() @ translate(dx, dy, 0) @ inperspective()
-    return view
-
-# 透视变换矩阵
-def get_perspective_transform_matrix(src_points, dst_points):
-    A = np.zeros((8, 8))
-    b = np.zeros((8, 1))
-
-    for i in range(4):
-        A[i * 2] = [src_points[i][0], src_points[i][1], 1, 0, 0, 0, -src_points[i][0] * dst_points[i][0], -src_points[i][1] * dst_points[i][0]]
-        A[i * 2 + 1] = [0, 0, 0, src_points[i][0], src_points[i][1], 1, -src_points[i][0] * dst_points[i][1], -src_points[i][1] * dst_points[i][1]]
-        b[i * 2] = dst_points[i][0]
-        b[i * 2 + 1] = dst_points[i][1]
-
-    h = np.linalg.solve(A, b)
-    h = np.append(h, [1])
-    transform_matrix = h.reshape((3, 3))
-    return transform_matrix
-
-# Bezier曲线生成
-def bezier_curve(control_points, n_points=100):
-    n = len(control_points) - 1
-    t = np.linspace(0, 1, n_points)
-    curve = np.zeros((n_points, 2))
-    # 预先计算并存储所有需要的二项式系数
-    binomials = [np.math.factorial(n) // (np.math.factorial(i) * np.math.factorial(n - i)) for i in range(n + 1)]
-    for i in range(n_points):
-        for j in range(n + 1):
-            curve[i] += binomials[j] * (1 - t[i]) ** (n - j) * t[i] ** j * control_points[j]
-    return curve
-
-
-# ---------- 图层类定义 ----------
 class Layer:
-    def __init__(self, name, bbox, npdata, model=None):
+    def __init__(self, ctx, name, bbox, npdata):
+        self.ctx = ctx
         self.name = name
-        self.npdata = npdata
-        self.texture_num, texture_pos = self.get_texture()
 
-        q, w = texture_pos
-        a, b, c, d = bbox
+        h, w_img = npdata.shape[:2]
+        d = 2**int(max(np.log2(w_img), np.log2(h)) + 1)
+        texture_data = np.zeros((d, d, 4), dtype='f4')
+        texture_data[:h, :w_img] = npdata
+        
+        self.texture = self.ctx.texture((d, d), 4, texture_data.tobytes(), dtype='f4')
+        self.texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+        self.texture.build_mipmaps()
+        self.texture.swizzle = 'BGRA'
+        
+        w_tex = w_img / d
+        q_tex = h / d
+        a, b, c, d_box = bbox
+        
+        vertices = np.array([
+            a, d_box, w_tex, 0.0,
+            a, b,     0.0,   0.0,
+            c, d_box, w_tex, q_tex,
+            c, b,     0.0,   q_tex
+        ], dtype='f4')
+        
+        self.vbo = self.ctx.buffer(vertices.tobytes())
+        self.vao = None
 
-        if model != None:
-            p1 = np.array([a, b, 0, 1, 0, 0]) @ model
-            p2 = np.array([a, d, 0, 1, w, 0]) @ model
-            p3 = np.array([c, d, 0, 1, w, q]) @ model
-            p4 = np.array([c, b, 0, 1, 0, q]) @ model
-        else:
-            p1 = np.array([a, b, 0, 1, 0, 0])
-            p2 = np.array([a, d, 0, 1, w, 0])
-            p3 = np.array([c, d, 0, 1, w, q])
-            p4 = np.array([c, b, 0, 1, 0, q])
+    def render(self, program, model_matrix, offset=(0, 0)):
+        if not self.vao:
+            self.vao = self.ctx.vertex_array(program, [(self.vbo, '2f 2f', 'in_vert', 'in_uv')])
+        self.texture.use(location=0)
+        program['offset'].value = offset
+        program['model'].write(model_matrix.astype('f4').tobytes())
+        self.vao.render(moderngl.TRIANGLE_STRIP)
 
-        self.vertex = np.vstack((p1,p2,p3,p4))
 
-    # 生成纹理
-    def get_texture(self):
-        w, h = self.npdata.shape[:2]
-        d = 2**int(max(np.log2(w), np.log2(h)) + 1)
-        texture = np.zeros([d, d, 4], dtype = self.npdata.dtype)
-        texture[:, :, :3] = 255
-        texture[:w, :h] = self.npdata
-        width, height = texture.shape[:2]
-        texture_num = glGenTextures(1)
-        glBindTexture(GL_TEXTURE_2D, texture_num)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR) 
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_BGRA, GL_FLOAT, texture)
-        glGenerateMipmap(GL_TEXTURE_2D)
-        return texture_num, (w / d, h / d) # 返回纹理坐标和纹理编号
+class Keyboard:
+    def __init__(self, ctx, key_yaml):
+        self.ctx = ctx
+        self.key_layers = {}
+        self.active_keys = set()
 
-    def get_vertex(self):
-        return self.vertex.copy()
+        with open(key_yaml, encoding='utf8') as f:
+            data = yaml.safe_load(f)
 
-def rander(init_yaml, key_yaml, conf_inf, psd_size=(354,612)):
-    global model
-    #global test_point
-    global key_inf
+        for key_name, info in data.items():
+            try:
+                self.key_layers[key_name.lower()] = Layer(self.ctx, key_name, info['bbox'], np.load(info['path']))
+            except Exception as e:
+                print(f"Failed to load key layer {key_name}: {e}")
+                pass
+                
+        self.listener = pynput_keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        self.listener.start()
 
-    t = threading.Thread(target=reload_thread,args=(conf_inf,))
-    #t.setDaemon(True) 旧写法，已弃用
-    t.daemon = True
-    t.start()
-
-    model = scale(2/psd_size[0],2/psd_size[1],1) @ translate(-1,-1,0) @ rotate(-np.pi/2,axis=(0,1))
-    window = init_window()
-
-    with open(init_yaml, encoding="utf8") as f:
-        init_inf = yaml.safe_load(f)
-    Layers = []
-    for l in init_inf:
-        a,b,c,d = init_inf[l]["bbox"]
-        npdate = np.load(init_inf[l]["path"])
-        layer_class = Layer(name=l,bbox=(a,b,c,d),npdata=npdate)
-        Layers.append(layer_class)
-
-    with open(key_yaml,encoding="utf8") as f:
-        key_inf = yaml.safe_load(f)
-    keyboard.hook(key_callback)
-
-    texture_cls = glGenTextures(1)
-
-    while not glfw.window_should_close(window):
-        glClearColor(0,0,0,0)
-        glClear(GL_COLOR_BUFFER_BIT)
-        curve,mouse_pos_dxy = calc_bezier()
-        for layer in Layers:
-            glBindTexture(GL_TEXTURE_2D,layer.texture_num)
-            glColor4f(1,1,1,1)
-            glPolygonMode(GL_FRONT_AND_BACK,GL_FILL)
-            p = layer.get_vertex()
-            a, b = p[:,:4],p[:,4:]
-            if layer.name == "mouse":
-                dx,dy = mouse_pos_dxy
-                a = a @ translate(dx,dy,0)
-            a = a @ model
-            glBegin(GL_QUADS)
-            for i in range(4):
-                glTexCoord2f(*b[i])
-                glVertex4f(*a[i])
-            glEnd()
-        draw_key()
-        glBindTexture(GL_TEXTURE_2D,texture_cls)
-        draw_bezier(curve)
-        glfw.swap_buffers(window)
-        glfw.poll_events()
-        time.sleep(1/30)
-
-def key_callback(x):
-    global key_inf
-    if x.name in key_inf:
-        if x.event_type == "down":
-            key_inf[x.name]["mode"] = 1
-        elif x.event_type == "up":
-            key_inf[x.name]["mode"] = 0
-
-def draw_key():
-    global key_inf
-    global model
-    for key in key_inf:
-        if key_inf[key]["mode"] == 1:
-            key_npdata = np.load(key_inf[key]["path"])
-            a,b,c,d = key_inf[key]["bbox"]
-            layer = Layer(name=key,bbox=(a,b,c,d),npdata=key_npdata)
-            glBindTexture(GL_TEXTURE_2D,layer.texture_num)
-            glColor4f(1,1,1,1)
-            glPolygonMode(GL_FRONT_AND_BACK,GL_FILL)
-            p = layer.get_vertex()
-            a, b = p[:,:4],p[:,4:]
-            a = a @ model
-            glBegin(GL_QUADS)
-            for i in range(4):
-                glTexCoord2f(*b[i])
-                glVertex4f(*a[i])
-            glEnd()
-            glDeleteTextures([layer.texture_num])
-
-# ---------- 窗口生成 ----------
-window = None
-hWindow = FindWindow("GLFW30","V")
-exStyle = WS_EX_LAYERED | WS_EX_TRANSPARENT
-
-def init_window(v_size=(612,354)):
-    global move_up
-    glfw.init()
-    glfw.window_hint(glfw.DECORATED, False)
-    glfw.window_hint(glfw.TRANSPARENT_FRAMEBUFFER, True)
-    glfw.window_hint(glfw.FLOATING, True)
-    glfw.window_hint(glfw.SAMPLES, 4)
-    #glfw.window_hint(glfw.FOCUS_ON_SHOW, False)
-    #glfw.window_hint(glfw.FOCUSED, False)
-    glfw.window_hint(glfw.RESIZABLE, False)
-    window = glfw.create_window(*v_size, "V", None, None)
-    glfw.make_context_current(window)
-    monitor_size = glfw.get_video_mode(glfw.get_primary_monitor()).size
-    glfw.set_window_pos(window, monitor_size.width - v_size[0], monitor_size.height - v_size[1] - move_up[0])
-    glViewport(0, 0, *v_size)
-    glEnable(GL_BLEND)
-    glEnable(GL_TEXTURE_2D)
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
-    hWindow = FindWindow("GLFW30","V")
-    exStyle = WS_EX_LAYERED | WS_EX_TRANSPARENT
-    SetWindowLong(hWindow, GWL_EXSTYLE, exStyle)
-    return window
-
-def reload_thread(path):
-    global bezier_start
-    global bezier_finish
-    global draw_constant
-    global test_point
-    global move_up
-    logging.warning("Reloading...")
-    while True:
+    def _get_key_name(self, key):
         try:
-            with open(path, encoding="utf8") as f:
-                conf_inf = yaml.safe_load(f)
-                bezier_start = conf_inf["bezier_start"]
-                bezier_finish = conf_inf["bezier_finish"]
-                draw_constant = conf_inf["draw_constant"]
-                test_point = conf_inf["test_point"]
-                move_up = conf_inf["move_up"]
-        except Exception as error:
-            logging.exception(error)
-        time.sleep(1)
+            if hasattr(key, 'char') and key.char:
+                return key.char.lower()
+            return key.name
+        except:
+            return str(key)
 
-def draw_point(x,y,color=(1,0,1)):
-    global model
-    p = np.array([x,y,0,1])
-    p = p @ model
-    glPointSize(5)
-    glColor4f(*color,1.0)
-    glBegin(GL_POINTS)
-    glVertex4f(*p)
-    glEnd()
+    def on_press(self, key):
+        k = self._get_key_name(key)
+        if k == 'return':
+            k = 'enter'
+        if k in self.key_layers:
+            self.active_keys.add(k)
 
-def calc_bezier():
-    global bezier_start
-    global bezier_finish
-    global draw_constant
-    start_point = np.array(bezier_start[0:2])
-    control_point = get_pos_from_custom()
-    finish_point = np.array(bezier_finish[0:2])
-    
-    dist = np.linalg.norm(control_point - start_point)
-    kc = np.array([0.69,-0.7237])
-    center_left = start_point + 1 * kc * dist / 2
-    p_1 = [start_point,\
-           center_left,\
-           control_point]
-    
-    p_a = center_left[1] - control_point[1]
-    p_b = control_point[0] - center_left[0]
-    p_ab = np.array([p_a,p_b])
-    le = np.linalg.norm(p_ab)
-    p_ab = control_point + (45/le) * p_ab
-    
-    dist = np.linalg.norm(finish_point - p_ab)
-    push = 20
-    kc2 = np.array([0.8,-0.6])
-    center_right = finish_point + 0.5 * kc2 * dist / 2
-    
-    p_st = control_point - center_right
-    le = np.linalg.norm(p_st)
-    p_st = p_st * (push/le)
+    def on_release(self, key):
+        k = self._get_key_name(key)
+        if k == 'return':
+            k = 'enter'
+        if k in self.key_layers:
+            self.active_keys.discard(k)
 
-    p_st2 = p_ab - center_right
-    le = np.linalg.norm(p_st2)
-    p_st2 = p_st2 * (push/le)
+    def render(self, program, model_matrix):
+        for key_name in list(self.active_keys):
+            if key_name in self.key_layers:
+                self.key_layers[key_name].render(program, model_matrix)
 
-    p_2 = [control_point,\
-           control_point + p_st,\
-           p_ab + p_st2,\
-           p_ab]
+    def stop(self):
+        self.listener.stop()
 
-    p_3 = [p_ab,\
-           center_right,\
-           finish_point]
-    p_1 = np.vstack(p_1)
-    p_2 = np.vstack(p_2)
-    p_3 = np.vstack(p_3)
-    
-    cur_1 = bezier_curve(p_1,n_points=5)
-    cur_2 = bezier_curve(p_2,n_points=5)
-    cur_3 = bezier_curve(p_3,n_points=5)
-    
-    pss2 = np.vstack((cur_1,cur_2,cur_3))
-    cur_pss = bezier_curve(pss2,n_points=30)
-    mouse_pos_dxy = (control_point + p_ab)/2 + \
-                     np.array([draw_constant[0], draw_constant[1]]) - \
-                     np.array([124,203])
-    return cur_pss, mouse_pos_dxy
+class MouseMapping:
+    def __init__(self, window_title, window_height, alpha_opt, pad_area):
+        self.window_title = window_title
+        self.window_h = window_height
+        self.y_offset = alpha_opt[0] if alpha_opt else 0
+        self.min_alpha = int((alpha_opt[1] if alpha_opt else 0.4) * 255)
+        
+        hDC = win32gui.GetDC(0)
+        self.sw = win32print.GetDeviceCaps(hDC, win32con.DESKTOPHORZRES)
+        self.sh = win32print.GetDeviceCaps(hDC, win32con.DESKTOPVERTRES)
+        win32gui.ReleaseDC(0, hDC)
+        self.hwnd = win32gui.FindWindow(None, self.window_title)
+            
+        src = np.array([
+            [0, 0], 
+            [self.sw, 0], 
+            [self.sw, self.sh], 
+            [0, self.sh]
+        ], dtype="f4")
+        dst = np.array(pad_area, dtype="f4")
+        
+        self.M = self._get_perspective_matrix(src, dst)
+        self.is_translucent = False 
 
-def draw_bezier(curve):
-    global model
-    global draw_constant
-    xx = curve[:,0]
-    yy = curve[:,1]
-    glBegin(GL_POLYGON)
-    glColor4f(1,1,1,1)
-    for i in range(xx.size):
-        p = np.array([xx[i],yy[i],0,1])
-        p = p @ model
-        glVertex4f(*p)
-    glEnd()
-    glLineWidth(draw_constant[2])
-    glBegin(GL_LINE_STRIP)
-    glColor4f(0,0,0,1)
-    for i in range(xx.size):
-        p = np.array([xx[i],yy[i],0,1])
-        p = p @ model
-        glVertex4f(*p)
-    glEnd()
+    def _get_perspective_matrix(self, src, dst):
+        A = np.zeros((8, 8))
+        b = np.zeros((8))
+        
+        for i in range(4):
+            sx, sy = src[i]
+            dx, dy = dst[i]
+            A[i*2] = [sx, sy, 1, 0, 0, 0, -sx*dx, -sy*dx]
+            A[i*2+1] = [0, 0, 0, sx, sy, 1, -sx*dy, -sy*dy]
+            b[i*2] = dx
+            b[i*2+1] = dy
+            
+        h = np.linalg.solve(A, b)
+        return np.append(h, [1]).reshape((3, 3))
 
-from win32 import win32api, win32gui, win32print
-from win32.lib import win32con
+    def update(self, current_win_pos):
+        mx, my = win32api.GetCursorPos()
+        
+        win_x, win_y = current_win_pos
+        win_w, win_h = 612, 354 
+        is_hover = (win_x <= mx <= win_x + win_w) and \
+                   (win_y <= my <= win_y + win_h - self.y_offset)
+        
+        if self.hwnd:
+            if is_hover and not self.is_translucent:
+                win32gui.SetLayeredWindowAttributes(self.hwnd, 0, self.min_alpha, win32con.LWA_ALPHA)
+                self.is_translucent = True
+            elif not is_hover and self.is_translucent:
+                win32gui.SetLayeredWindowAttributes(self.hwnd, 0, 255, win32con.LWA_ALPHA)
+                self.is_translucent = False
+        
+        vec = np.array([mx, my, 1])
+        mapped = self.M @ vec
+        if mapped[2] != 0:
+            return mapped[0] / mapped[2], mapped[1] / mapped[2] 
+        return 0, 0
 
-hDC = win32gui.GetDC(0)
-monitor_width = win32print.GetDeviceCaps(hDC, win32con.DESKTOPHORZRES)
-monitor_heigt= win32print.GetDeviceCaps(hDC, win32con.DESKTOPVERTRES)
+class Cat:
+    def __init__(self, init_yaml, key_yaml, conf_path):
+        with open(conf_path, encoding='utf8') as f:
+            conf = yaml.safe_load(f)
+            self.bezier_start = conf["bezier_start"]
+            self.bezier_finish = conf["bezier_finish"]
+            self.draw_constant = conf["draw_constant"]
+            opacity_conf = conf.get("move_up", [0, 0.4]) 
+            self.move_up_y = opacity_conf[0]
+            self.mouse_map_points = conf.get("mouse_map", None)
 
-src_points = np.array([[0, 0], [monitor_width, 0], [monitor_width, monitor_heigt], [0, monitor_width]])
-dst_points = np.array([[254, 135], [212, 70], [187, 111],[232, 192]])
-M_custom = get_perspective_transform_matrix(src_points, dst_points)
+        glfw.init()
+        glfw.window_hint(glfw.DECORATED, False)
+        glfw.window_hint(glfw.TRANSPARENT_FRAMEBUFFER, True)
+        glfw.window_hint(glfw.FLOATING, True)
+        glfw.window_hint(glfw.SAMPLES, 4)
+        glfw.window_hint(glfw.RESIZABLE, False)
+        
+        self.window_title = "Cat"
+        self.window_w, self.window_h = 612, 354
+        self.window = glfw.create_window(self.window_w, self.window_h, self.window_title, None, None)
+        
+        glfw.make_context_current(self.window)
+        monitor = glfw.get_primary_monitor()
+        mode = glfw.get_video_mode(monitor)
+        target_x = mode.size.width - self.window_w
+        target_y = mode.size.height - self.window_h - int(self.move_up_y)
+        glfw.set_window_pos(self.window, target_x, target_y)
 
-translucent = 0
-def get_pos_from_custom():
-    global M_custom
-    global translucent
-    global hWindow
-    global move_up
-    hWindow = FindWindow("GLFW30","V")
-    custom_x, custom_y = win32api.GetCursorPos()
-    if custom_x >= (monitor_width - 612) and custom_x <= monitor_width and (monitor_heigt- 354 - move_up[0]) <= custom_y and custom_y <= (monitor_heigt - move_up[0]) and translucent == 0:
-        translucent = 1
-        SetLayeredWindowAttributes(hWindow,RGB(0,0,0),int(move_up[1]*255),LWA_ALPHA)
-    elif (custom_x < (monitor_width - 612) or custom_x > monitor_width or (monitor_heigt - 354 - move_up[0]) > custom_y or custom_y > (monitor_heigt - move_up[0])) and translucent == 1:
-        translucent = 0
-        SetLayeredWindowAttributes(hWindow,RGB(0,0,0),255,LWA_ALPHA)
-    point = np.array([custom_x,custom_y, 1])
-    new_point = np.dot(M_custom, point)
-    X, Y, Z = new_point
-    x_prime = X / Z
-    y_prime = Y / Z
-    return np.array([x_prime, y_prime])
+        self.ctx = moderngl.create_context()
+        self.ctx.enable(moderngl.BLEND)
+        self.ctx.blend_func = moderngl.DEFAULT_BLENDING
+        self.ctx.disable(moderngl.CULL_FACE)
+        
+        hwnd = win32gui.FindWindow(None, self.window_title)
+        if hwnd:
+            exStyle = win32con.WS_EX_LAYERED | win32con.WS_EX_TRANSPARENT | win32con.WS_EX_TOOLWINDOW
+            win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, exStyle)
+            win32gui.SetLayeredWindowAttributes(hwnd, 0, 255, win32con.LWA_ALPHA)
+
+        self.layer_prog = self.ctx.program(
+            vertex_shader=self._load_shader("./shader/layer.vert"), 
+            fragment_shader=self._load_shader("./shader/layer.frag")
+        )
+        self.bezier_prog = self.ctx.program(
+            vertex_shader=self._load_shader("./shader/bezier.vert"), 
+            fragment_shader=self._load_shader("./shader/bezier.frag")
+        )
+        
+        m_scale = scale(2/354, 2/612, 1) 
+        m_trans = translate(-1, -1, 0)
+        m_rot = rotate(-np.pi/2, axis=(0, 1))
+        self.base_model = m_scale @ m_trans @ m_rot
+        
+        self.layers = []
+        if os.path.exists(init_yaml):
+            with open(init_yaml, encoding='utf8') as f:
+                data = yaml.safe_load(f)
+                for name, info in data.items():
+                    try:
+                        layer = Layer(self.ctx, name, info['bbox'], np.load(info['path']))
+                        self.layers.append(layer)
+                    except Exception as e:
+                        print(f"Failed to load layer {name}: {e}")
+                        pass
+
+        self.key_manager = Keyboard(self.ctx, key_yaml)
+        self.input_mapper = MouseMapping(
+            self.window_title, 
+            self.window_h, 
+            opacity_conf, 
+            self.mouse_map_points
+        )
+        
+        self.bezier_vao = self.ctx.vertex_array(self.bezier_prog, [])
+
+    def _load_shader(self, file_path):
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Shader file not found: {file_path}")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+
+    def get_skeleton(self):
+        curr_pos = glfw.get_window_pos(self.window)
+        map_x, map_y = self.input_mapper.update(curr_pos)
+        
+        control = np.array([map_x, map_y])
+        start = np.array(self.bezier_start[0:2])
+        finish = np.array(self.bezier_finish[0:2])
+        
+        dist = np.linalg.norm(control - start)
+        kc = np.array([0.69, -0.7237])
+        
+        center_l = start + 1 * kc * dist / 2
+        p_a = center_l[1] - control[1]
+        p_b = control[0] - center_l[0]
+        p_ab = np.array([p_a, p_b])
+        
+        le = np.linalg.norm(p_ab)
+        if le > 0:
+            p_ab = control + (45/le) * p_ab
+        
+        dist = np.linalg.norm(finish - p_ab)
+        kc2 = np.array([0.8, -0.6])
+        center_r = finish + 0.5 * kc2 * dist / 2
+        p_st = control - center_r
+        
+        le = np.linalg.norm(p_st)
+        if le > 0:
+            p_st = p_st * (20/le)
+            
+        p_st2 = p_ab - center_r
+        le = np.linalg.norm(p_st2)
+        if le > 0:
+            p_st2 = p_st2 * (20/le)
+        
+        raw_res = (
+            tuple(start), tuple(center_l), tuple(control),
+            tuple(control), tuple(control + p_st), tuple(p_ab + p_st2), tuple(p_ab),
+            tuple(p_ab), tuple(center_r), tuple(finish)
+        )
+        
+        mouse_dxy = (control + p_ab)/2 + np.array(self.draw_constant[:2]) - np.array([124, 203])
+        return raw_res, mouse_dxy
+
+    def render(self):
+        self.bezier_prog['model'].write(self.base_model.astype('f4').tobytes())
+        self.bezier_prog['total_verts'].value = 100
+
+        while not glfw.window_should_close(self.window):
+            self.ctx.clear(0, 0, 0, 0)
+            raw_res, mouse_dxy = self.get_skeleton()
+            for layer in self.layers:
+                offset = mouse_dxy if layer.name == "mouse" else (0, 0)
+                layer.render(self.layer_prog, self.base_model, offset)
+            self.key_manager.render(self.layer_prog, self.base_model)
+            self.bezier_prog['raw_res'].value = raw_res
+            self.bezier_prog['color'].value = (1.0, 1.0, 1.0, 1.0)
+            self.bezier_vao.render(moderngl.TRIANGLE_FAN, vertices=100)
+            self.bezier_prog['color'].value = (0.0, 0.0, 0.0, 1.0)
+            self.ctx.line_width = self.draw_constant[2]
+            self.bezier_vao.render(moderngl.LINE_STRIP, vertices=100)
+            glfw.swap_buffers(self.window)
+            glfw.poll_events()
+            time.sleep(1/30)
+        
+        self.key_manager.stop()
+        glfw.terminate()
 
 if __name__ == '__main__':
-    rander(init_yaml="./Cat2/init.yaml",\
-           key_yaml="./Cat2/keyinf.yaml",\
-           conf_inf="./conf.yaml")
+    app = Cat(
+        init_yaml="./Cat/init.yaml",
+        key_yaml="./Cat/keyinf.yaml",
+        conf_path="./conf.yaml"
+    )
+    app.render()

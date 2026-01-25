@@ -10,9 +10,11 @@ Bongo Cat in python.
 
 To run the code, you need to install the packages:
 
-- Numpy
-- pyOpenGL
+- numpy
+- pyopengl
+- moderngl
 - glfw
 - yaml
-- keyboard
+- ~keyboard~
+- pynput
 - pywin32
