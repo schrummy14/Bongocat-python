@@ -50,9 +50,12 @@ class InputMonitor:
 
         print("-" * 30)
         if target_paths:
-            for path in target_paths:
-                try: self._register_device(evdev.InputDevice(path))
-                except: pass
+            try:
+                for path in target_paths:
+                    self._register_device(evdev.InputDevice(path))
+            except Exception:
+                print(f"ERROR :: Failed to register input device -> {path}")
+                exit(1)
         else:
             for path in evdev.list_devices():
                 try:
@@ -64,11 +67,11 @@ class InputMonitor:
 
     def _register_device(self, dev, auto_filter=False):
         caps = dev.capabilities()
-        print(f"DEBUG :: dev: {dev}")
+        # print(f"DEBUG :: dev: {dev}")
         if auto_filter and not (ecodes.EV_REL in caps or ecodes.EV_ABS in caps or ecodes.EV_KEY in caps):
             return
         # print(f"  ✔ 挂载: {dev.name}")
-        print(f"  ✔ Mount: {dev.name}")
+        print(f"  ✔ Mounting: {dev.name}")
         self.monitored_devs.append(dev)
         if ecodes.EV_ABS in caps:
             try:
@@ -255,6 +258,7 @@ class Cat:
             self.bezier_finish = conf["bezier_finish"]
             self.draw_constant = conf["draw_constant"]
             self.mouse_map_points = conf.get("mouse_map", None)
+            self.input_devices = conf.get("input_devices", None)
 
         if not glfw.init(): raise Exception("GLFW failed")
 
@@ -274,9 +278,14 @@ class Cat:
         # 输入设备 -> Input Devices
         monitor = glfw.get_primary_monitor()
         mode = glfw.get_video_mode(monitor)
-        my_devices = ['/dev/input/event2', '/dev/input/event4']
-        self.input_monitor = InputMonitor(mode.size.width, mode.size.height, my_devices)
-        # self.input_monitor = InputMonitor(mode.size.width, mode.size.height)
+        # my_devices = ['/dev/input/event2', '/dev/input/event4']
+        my_devices = self._get_input_devices_from_conf()
+        if my_devices:
+            self.input_monitor = InputMonitor(mode.size.width, mode.size.height, my_devices)
+        else:
+            print("WARNING :: No input devices listed in config...")
+            print("           Using all discovered input devices.")
+            self.input_monitor = InputMonitor(mode.size.width, mode.size.height)
 
         # Context
         self.ctx = moderngl.create_context()
@@ -309,6 +318,31 @@ class Cat:
         self.key_manager = Keyboard(self.ctx, key_yaml)
         self.input_mapper = MouseMapping(self.window_h, self.mouse_map_points)
         self.bezier_vao = self.ctx.vertex_array(self.bezier_prog, [])
+
+    def _get_input_devices_from_conf(self) -> set[str]:
+        if self.input_devices is None:
+            return set()
+        my_devices = set()
+        name2path = {}
+        inputPaths = evdev.list_devices()
+        for path in inputPaths:
+            dev = evdev.InputDevice(path)
+            name2path[dev.name] = path
+
+        for entry in self.input_devices:
+            k,v = list(entry.keys())[0], list(entry.values())[0]
+            if k == "device":
+                my_devices.add(v)
+            elif k == "name":
+                path = name2path.get(v, "None")
+                if path == "None":
+                    print(f"ERROR :: Device \"{v}\" was not found... Please double check device name.")
+                    exit(1)
+                my_devices.add(name2path[v])
+            else:
+                print(f"ERROR :: Invalid key [{k}] in config file...")
+        return my_devices
+
 
     def _load_shader(self, path):
         with open(path, 'r', encoding='utf-8') as f: return f.read()

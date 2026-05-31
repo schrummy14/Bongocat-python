@@ -20,3 +20,15 @@ mouse_map:
 move_up:
 # 距离屏幕底部上移距离，透明度 -> Distance from the bottom of the screen (offset), transparency
     [85,0.5]
+
+# Add input devices here
+# Can either add by path or by name (recommended)
+input_devices:
+    # - device:
+    #     "/dev/input/event2"
+    # - device:
+    #     "/dev/input/event4"
+    - name:
+        "Logitech G502 X"
+    - name:
+        "Keychron Keychron Q11"
