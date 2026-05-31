@@ -233,20 +233,26 @@ class MouseMapping:
         self.M = self._get_perspective_matrix(src, dst)
 
     def _get_perspective_matrix(self, src, dst):
-        A = np.zeros((8, 8)); b = np.zeros((8))
+        A = np.zeros((8, 8))
+        b = np.zeros((8))
         for i in range(4):
-            sx, sy = src[i]; dx, dy = dst[i]
+            sx, sy = src[i]
+            dx, dy = dst[i]
             A[i*2] = [sx, sy, 1, 0, 0, 0, -sx*dx, -sy*dx]
             A[i*2+1] = [0, 0, 0, sx, sy, 1, -sx*dy, -sy*dy]
-            b[i*2] = dx; b[i*2+1] = dy
-        try: h = np.linalg.solve(A, b)
-        except: return np.eye(3)
+            b[i*2] = dx
+            b[i*2+1] = dy
+        try:
+            h = np.linalg.solve(A, b)
+        except Exception:
+            return np.eye(3)
         return np.append(h, [1]).reshape((3, 3))
 
     def update(self, global_mouse_pos):
         mx, my = global_mouse_pos
         mapped = self.M @ np.array([mx, my, 1])
-        if mapped[2] != 0: return mapped[0] / mapped[2], mapped[1] / mapped[2]
+        if mapped[2] != 0:
+            return mapped[0] / mapped[2], mapped[1] / mapped[2]
         return 0, 0
 
 # === 5. Main Cat Class ===
@@ -358,7 +364,8 @@ class Cat:
         center_l = start + 1 * np.array([0.69, -0.7237]) * dist / 2
         p_ab = np.array([center_l[1] - control[1], control[0] - center_l[0]])
         le = np.linalg.norm(p_ab)
-        if le > 0: p_ab = control + (45/le) * p_ab
+        if le > 0:
+            p_ab = control + (45/le) * p_ab
 
         dist = np.linalg.norm(finish - p_ab)
         center_r = finish + 0.5 * np.array([0.8, -0.6]) * dist / 2
@@ -397,9 +404,9 @@ class Cat:
             # 渲染线条 -> Rendering Lines
             if 'color' in self.bezier_prog:
                 self.bezier_prog['raw_res'].value = raw_res
-                self.bezier_prog['color'].value = (1.0, 1.0, 1.0, 1.0) # Inside of arm
+                self.bezier_prog['color'].value = (1.0, 1.0, 1.0, 1.0) # Inside of mouse arm
                 self.bezier_vao.render(moderngl.TRIANGLE_FAN, vertices=100)
-                self.bezier_prog['color'].value = (0.0, 0.0, 0.0, 1.0) # Line of arm
+                self.bezier_prog['color'].value = (0.0, 0.0, 0.0, 1.0) # Line of mouse arm
                 self.ctx.line_width = self.draw_constant[2]
                 self.bezier_vao.render(moderngl.LINE_STRIP, vertices=100)
 
