@@ -64,7 +64,7 @@ class InputMonitor:
 
     def _register_device(self, dev, auto_filter=False):
         caps = dev.capabilities()
-        print(f"DEBUG :: auto_filter: {auto_filter}, dev: {dev}, dev.capabilities: {dev.capabilities}")
+        print(f"DEBUG :: dev: {dev}")
         if auto_filter and not (ecodes.EV_REL in caps or ecodes.EV_ABS in caps or ecodes.EV_KEY in caps):
             return
         # print(f"  ✔ 挂载: {dev.name}")
