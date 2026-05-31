@@ -371,10 +371,12 @@ class Cat:
         center_r = finish + 0.5 * np.array([0.8, -0.6]) * dist / 2
         p_st = control - center_r
         le = np.linalg.norm(p_st)
-        if le > 0: p_st = p_st * (20/le)
+        if le > 0:
+            p_st = p_st * (20/le)
         p_st2 = p_ab - center_r
         le = np.linalg.norm(p_st2)
-        if le > 0: p_st2 = p_st2 * (20/le)
+        if le > 0:
+            p_st2 = p_st2 * (20/le)
 
         raw_res = (tuple(start), tuple(center_l), tuple(control), tuple(control),
                    tuple(control + p_st), tuple(p_ab + p_st2), tuple(p_ab),
