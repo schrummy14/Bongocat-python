@@ -1,0 +1,6 @@
+numpy
+pyopengl
+moderngl
+glfw
+pyyaml
+pynput

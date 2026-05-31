@@ -35,16 +35,16 @@ class InputMonitor:
         self.screen_h = screen_h
         self.active_keys = set()
         self.running = True
-        
-        # 灵敏度设置
-        self.rel_sensitivity = 4.0    # 普通鼠标灵敏度
-        self.abs_sensitivity = 0.4    # 触控板/数位板相对位移灵敏度
-        
+
+        # 灵敏度设置 -> Sensitivity Settings
+        self.rel_sensitivity = 4.0    # 普通鼠标灵敏度 -> Standard Mouse Sensitivity
+        self.abs_sensitivity = 0.4    # 触控板/数位板相对位移灵敏度 -> Touchpad/Tablet Relative Displacement Sensitivity
+
         self.monitored_devs = []
         self.abs_info = {}
-        self.pending_frames = {} 
+        self.pending_frames = {}
 
-        # 触控板追踪变量
+        # 触控板追踪变量 -> Touchpad Tracking Variables
         self.last_abs_x = None
         self.last_abs_y = None
 
@@ -54,19 +54,21 @@ class InputMonitor:
                 try: self._register_device(evdev.InputDevice(path))
                 except: pass
         else:
-            try:
-                for path in evdev.list_devices():
+            for path in evdev.list_devices():
+                try:
                     self._register_device(evdev.InputDevice(path), True)
-            except: pass
+                except: pass
 
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
     def _register_device(self, dev, auto_filter=False):
         caps = dev.capabilities()
+        print(f"DEBUG :: auto_filter: {auto_filter}, dev: {dev}, dev.capabilities: {dev.capabilities}")
         if auto_filter and not (ecodes.EV_REL in caps or ecodes.EV_ABS in caps or ecodes.EV_KEY in caps):
             return
-        print(f"  ✔ 挂载: {dev.name}")
+        # print(f"  ✔ 挂载: {dev.name}")
+        print(f"  ✔ Mount: {dev.name}")
         self.monitored_devs.append(dev)
         if ecodes.EV_ABS in caps:
             try:
@@ -83,26 +85,27 @@ class InputMonitor:
                 r, _, _ = select.select(device_map, [], [], 1.0)
                 for fd in r:
                     dev = device_map[fd]
-                    
+
                     for event in dev.read():
-                        # === 1. 处理触控板绝对坐标 (EV_ABS) ===
-                        # 核心逻辑：计算手指滑动的 Delta(增量)，模拟光标移动
+                        # === 1. 处理触控板绝对坐标 {Handling Touchpad Absolute Coordinates} (EV_ABS) ===
+                        # 核心逻辑：计算手指滑动的 Delta(增量)，模拟光标移动 -> Core Logic: Calculate the delta (increment) of the finger swipe to simulate cursor movement.
+                        # print(f"DEBUG :: New Event -> {event}")
                         if event.type == ecodes.EV_ABS:
                             if event.code == ecodes.ABS_X:
                                 if self.last_abs_x is not None:
                                     delta_x = event.value - self.last_abs_x
                                     self.mouse_x += delta_x * self.abs_sensitivity
                                 self.last_abs_x = event.value
-                                
+
                             elif event.code == ecodes.ABS_Y:
                                 if self.last_abs_y is not None:
                                     delta_y = event.value - self.last_abs_y
                                     self.mouse_y += delta_y * self.abs_sensitivity
                                 self.last_abs_y = event.value
 
-                        # === 2. 处理手指抬起/放下 (EV_KEY) ===
+                        # === 2. 处理手指抬起/放下 {Handle Finger Lift/Drop} (EV_KEY) ===
                         elif event.type == ecodes.EV_KEY:
-                            # 处理键盘按键
+                            # 处理键盘按键 -> Handling Keyboard Keys
                             if not event.code == ecodes.BTN_TOUCH:
                                 if event.value in [0, 1]:
                                     k = ecodes.KEY.get(event.code)
@@ -113,24 +116,27 @@ class InputMonitor:
                                         if clean == "leftmeta": clean = "win"
                                         if event.value == 1: self.active_keys.add(clean)
                                         else: self.active_keys.discard(clean)
-                            
-                            # 🔥 关键：当手指离开触控板时 (BTN_TOUCH 0)，重置位置追踪
+
+                            # 🔥 关键：当手指离开触控板时 (BTN_TOUCH 0)，重置位置追踪 -> Key: When the finger lifts off the touchpad (BTN_TOUCH 0), reset position tracking.
                             elif event.code == ecodes.BTN_TOUCH and event.value == 0:
                                 self.last_abs_x = None
                                 self.last_abs_y = None
 
-                        # === 3. 处理普通鼠标相对移动 (EV_REL) ===
+                        # === 3. 处理普通鼠标相对移动 (EV_REL) === -> Handling Relative Movement of a Standard Mouse (EV_REL)
                         elif event.type == ecodes.EV_REL:
-                            if event.code == ecodes.REL_X: 
+                            if event.code == ecodes.REL_X:
                                 self.mouse_x += event.value * self.rel_sensitivity
-                            elif event.code == ecodes.REL_Y: 
+                            elif event.code == ecodes.REL_Y:
                                 self.mouse_y += event.value * self.rel_sensitivity
-                        
+
                         # 同步信号通常用于绝对坐标的帧结算，在增量模式下可忽略或仅做位置边界检查
+                        # Synchronization signals are typically used for frame resolution
+                        # in absolute coordinate systems;
+                        # in incremental mode, they may be ignored or used solely for position boundary checks.
                         elif event.type == ecodes.EV_SYN:
                             pass
 
-                    # 每一帧结束确保坐标不越界
+                    # 每一帧结束确保坐标不越界 -> Ensure that coordinates remain within bounds at the end of every frame.
                     self.mouse_x = max(0, min(self.mouse_x, self.screen_w))
                     self.mouse_y = max(0, min(self.mouse_y, self.screen_h))
             except: pass
@@ -139,7 +145,7 @@ class InputMonitor:
     def get_keys(self): return list(self.active_keys)
     def stop(self): self.running = False
 
-# === 2. Layer (自动填充 Alpha，修复全透明 Bug) ===
+# === 2. Layer (自动填充 Alpha，修复全透明 Bug) === -> (Auto-fill Alpha, Fix Fully Transparent Bug)
 class Layer:
     def __init__(self, ctx, name, bbox, npdata):
         self.ctx = ctx
@@ -152,14 +158,14 @@ class Layer:
 
         h, w_img = npdata.shape[:2]
         if npdata.ndim == 2: npdata = np.expand_dims(npdata, axis=2)
-            
+
         d = 2**int(max(np.log2(w_img), np.log2(h)) + 1)
         texture_data = np.zeros((d, d, 4), dtype='f4')
-        
+
         channels = npdata.shape[2]
         if channels == 3:
             texture_data[:h, :w_img, :3] = npdata
-            texture_data[:h, :w_img, 3] = 1.0 
+            texture_data[:h, :w_img, 3] = 1.0
         elif channels == 1:
             texture_data[:h, :w_img, 0] = npdata[:,:,0]
             texture_data[:h, :w_img, 1] = npdata[:,:,0]
@@ -172,18 +178,18 @@ class Layer:
         self.texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
         self.texture.build_mipmaps()
         self.texture.swizzle = 'BGRA'
-        
+
         w_tex = w_img / d
         q_tex = h / d
         a, b, c, d_box = bbox
-        
+
         vertices = np.array([
             a, d_box, w_tex, 0.0,
             a, b,     0.0,   0.0,
             c, d_box, w_tex, q_tex,
             c, b,     0.0,   q_tex
         ], dtype='f4')
-        
+
         self.vbo = self.ctx.buffer(vertices.tobytes())
         self.vao = None
 
@@ -251,7 +257,7 @@ class Cat:
             self.mouse_map_points = conf.get("mouse_map", None)
 
         if not glfw.init(): raise Exception("GLFW failed")
-        
+
         glfw.window_hint(glfw.DECORATED, False)
         glfw.window_hint(glfw.TRANSPARENT_FRAMEBUFFER, True)
         glfw.window_hint(glfw.FLOATING, True)
@@ -265,18 +271,19 @@ class Cat:
         if not self.window: glfw.terminate(); return
         glfw.make_context_current(self.window)
 
-        # 输入设备
+        # 输入设备 -> Input Devices
         monitor = glfw.get_primary_monitor()
         mode = glfw.get_video_mode(monitor)
-        my_devices = ['/dev/input/event0', '/dev/input/event6'] 
+        my_devices = ['/dev/input/event2', '/dev/input/event4']
         self.input_monitor = InputMonitor(mode.size.width, mode.size.height, my_devices)
-        
+        # self.input_monitor = InputMonitor(mode.size.width, mode.size.height)
+
         # Context
         self.ctx = moderngl.create_context()
         self.ctx.enable(moderngl.BLEND)
         self.ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
 
-        # Shaders (去掉 global_alpha 相关逻辑)
+        # Shaders (去掉 global_alpha 相关逻辑) -> (Remove global_alpha-related logic)
         self.layer_prog = self.ctx.program(
             vertex_shader=self._load_shader("./shader/layer.vert"),
             fragment_shader=self._load_shader("./shader/layer.frag")
@@ -285,12 +292,12 @@ class Cat:
             vertex_shader=self._load_shader("./shader/bezier.vert"),
             fragment_shader=self._load_shader("./shader/bezier.frag")
         )
-        
+
         m_scale = scale(2/354, 2/612, 1)
         m_trans = translate(-1, -1, 0)
         m_rot = rotate(-np.pi/2, axis=(0, 1))
         self.base_model = m_scale @ m_trans @ m_rot
-        
+
         self.layers = []
         if os.path.exists(init_yaml):
             with open(init_yaml, encoding='utf8') as f:
@@ -310,7 +317,7 @@ class Cat:
         g_mouse = self.input_monitor.get_mouse_pos()
         mx, my = self.input_mapper.update(g_mouse)
         control = np.array([mx, my])
-        
+
         start = np.array(self.bezier_start[0:2])
         finish = np.array(self.bezier_finish[0:2])
         dist = np.linalg.norm(control - start)
@@ -318,7 +325,7 @@ class Cat:
         p_ab = np.array([center_l[1] - control[1], control[0] - center_l[0]])
         le = np.linalg.norm(p_ab)
         if le > 0: p_ab = control + (45/le) * p_ab
-        
+
         dist = np.linalg.norm(finish - p_ab)
         center_r = finish + 0.5 * np.array([0.8, -0.6]) * dist / 2
         p_st = control - center_r
@@ -327,7 +334,7 @@ class Cat:
         p_st2 = p_ab - center_r
         le = np.linalg.norm(p_st2)
         if le > 0: p_st2 = p_st2 * (20/le)
-        
+
         raw_res = (tuple(start), tuple(center_l), tuple(control), tuple(control),
                    tuple(control + p_st), tuple(p_ab + p_st2), tuple(p_ab),
                    tuple(p_ab), tuple(center_r), tuple(finish))
@@ -337,23 +344,23 @@ class Cat:
     def render(self):
         self.bezier_prog['model'].write(self.base_model.astype('f4').tobytes())
         self.bezier_prog['total_verts'].value = 100
-        
+
         while not glfw.window_should_close(self.window):
-            # 直接渲染到屏幕
+            # 直接渲染到屏幕 -> Render directly to the screen
             self.ctx.screen.use()
             self.ctx.clear(0, 0, 0, 0)
-            
+
             raw_res, dxy = self.get_skeleton()
-            
-            # 渲染图层
+
+            # 渲染图层 -> Render Layer
             for l in self.layers:
                 off = dxy if l.name == "mouse" else (0, 0)
                 l.render(self.layer_prog, self.base_model, off)
-            
+
             active_keys = self.input_monitor.get_keys()
             self.key_manager.render(self.layer_prog, self.base_model, active_keys)
-            
-            # 渲染线条
+
+            # 渲染线条 -> Rendering Lines
             if 'color' in self.bezier_prog:
                 self.bezier_prog['raw_res'].value = raw_res
                 self.bezier_prog['color'].value = (1.0, 1.0, 1.0, 1.0)
@@ -365,7 +372,7 @@ class Cat:
             glfw.swap_buffers(self.window)
             glfw.poll_events()
             time.sleep(1/30)
-            
+
         self.input_monitor.stop()
         glfw.terminate()
 
