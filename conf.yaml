@@ -1,14 +1,14 @@
-# Bezier曲线绘制起始点 x,y
+# Bezier曲线绘制起始点 x,y -> Bezier curve drawing start point (x, y)
 bezier_start:
     [126,178]
 
-# Bezier曲线绘制结束点 x,y
+# Bezier曲线绘制结束点 x,y -> Bezier curve drawing endpoint (x, y)
 bezier_finish:
     [182,210]
 
-# 一些常数
+# 一些常数 -> Some constants
 draw_constant:
-# 鼠标图层偏移x,y，bezier粗细
+# 鼠标图层偏移x,y，bezier粗细 -> Mouse layer offset (x, y), Bezier line thickness
     [-100,50,3]
 
 mouse_map:
@@ -18,5 +18,5 @@ mouse_map:
   - [232, 192]
 
 move_up:
-# 距离屏幕底部上移距离，透明度
+# 距离屏幕底部上移距离，透明度 -> Distance from the bottom of the screen (offset), transparency
     [85,0.5]

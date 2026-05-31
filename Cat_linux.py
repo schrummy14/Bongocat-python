@@ -363,15 +363,15 @@ class Cat:
             # 渲染线条 -> Rendering Lines
             if 'color' in self.bezier_prog:
                 self.bezier_prog['raw_res'].value = raw_res
-                self.bezier_prog['color'].value = (1.0, 1.0, 1.0, 1.0)
+                self.bezier_prog['color'].value = (1.0, 1.0, 1.0, 1.0) # Inside of arm
                 self.bezier_vao.render(moderngl.TRIANGLE_FAN, vertices=100)
-                self.bezier_prog['color'].value = (0.0, 0.0, 0.0, 1.0)
+                self.bezier_prog['color'].value = (0.0, 0.0, 0.0, 1.0) # Line of arm
                 self.ctx.line_width = self.draw_constant[2]
                 self.bezier_vao.render(moderngl.LINE_STRIP, vertices=100)
 
             glfw.swap_buffers(self.window)
             glfw.poll_events()
-            time.sleep(1/30)
+            time.sleep(1/30) # ~30 fps
 
         self.input_monitor.stop()
         glfw.terminate()
