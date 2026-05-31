@@ -1,16 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import yaml
 from PIL import Image
 
-img = np.load("texture\hand.npy")
+FILES = (
+    "texture/bg.npy",
+    "texture/cat.npy",
+    "texture/hand.npy",
+    "texture/mouse.npy",
+    "keyboard/0.npy"
+)
 
-cov = (img*255).astype(np.uint8)
+for f in FILES:
+    try:
+        img = np.load(f"{f}")
 
-out = Image.fromarray(img)
+        cov = (img*255).astype(np.uint8)
 
-out.show()
+        out = Image.fromarray(cov)
 
-plt.imshow(img)
+        out.show()
 
-plt.show()
+        # plt.imshow(img)
+
+        # plt.show()
+    except Exception as e:
+        print(e)
