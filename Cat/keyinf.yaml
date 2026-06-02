@@ -119,6 +119,17 @@
     mode:
         0
 
+"grave":
+    path:
+        ./Cat/keyboard/10.npy
+    bbox:
+        - 319
+        - 488
+        - 343
+        - 522
+    mode:
+        0
+
 "p":
     path:
         ./Cat/keyboard/11.npy
@@ -230,6 +241,17 @@
         0
 
 "/":
+    path:
+        ./Cat/keyboard/21.npy
+    bbox:
+        - 234
+        - 330
+        - 249
+        - 360
+    mode:
+        0
+
+"slash":
     path:
         ./Cat/keyboard/21.npy
     bbox:
@@ -493,7 +515,28 @@
     mode:
         0
 
+"leftalt":
+    path:
+        ./Cat/keyboard/44.npy
+    bbox:
+        - 244
+        - 466
+        - 261
+        - 494
+    mode:
+        0
+
 "shift":
+    path:
+        ./Cat/keyboard/45.npy
+    bbox:
+        - 263
+        - 487
+        - 289
+        - 549
+    mode:
+        0
+"leftshift":
     path:
         ./Cat/keyboard/45.npy
     bbox:
@@ -515,7 +558,29 @@
     mode:
         0
 
+"leftctrl":
+    path:
+        ./Cat/keyboard/46.npy
+    bbox:
+        - 252
+        - 507
+        - 274
+        - 557
+    mode:
+        0
+
 "caps lock":
+    path:
+        ./Cat/keyboard/47.npy
+    bbox:
+        - 280
+        - 487
+        - 305
+        - 541
+    mode:
+        0
+
+"capslock":
     path:
         ./Cat/keyboard/47.npy
     bbox:
@@ -538,6 +603,17 @@
         0
 
 "left windows":
+    path:
+        ./Cat/keyboard/49.npy
+    bbox:
+        - 249
+        - 486
+        - 265
+        - 514
+    mode:
+        0
+
+"win":
     path:
         ./Cat/keyboard/49.npy
     bbox:
@@ -680,6 +756,17 @@
     mode:
         0
 
+"rightctrl":
+    path:
+        ./Cat/keyboard/61.npy
+    bbox:
+        - 214
+        - 301
+        - 234
+        - 355
+    mode:
+        0
+
 "right shift":
     path:
         ./Cat/keyboard/62.npy
@@ -691,7 +778,29 @@
     mode:
         0
 
-"rigth alt":
+"rightshift":
+    path:
+        ./Cat/keyboard/62.npy
+    bbox:
+        - 225
+        - 286
+        - 246
+        - 341
+    mode:
+        0
+
+"right alt":
+    path:
+        ./Cat/keyboard/63.npy
+    bbox:
+        - 222
+        - 344
+        - 237
+        - 373
+    mode:
+        0
+
+"rightalt":
     path:
         ./Cat/keyboard/63.npy
     bbox:

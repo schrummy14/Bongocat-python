@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import moderngl
 import glfw
 import numpy as np
@@ -12,19 +14,25 @@ from evdev import ecodes
 
 def scale(x, y, z):
     a = np.eye(4, dtype="f4")
-    a[0, 0] = x; a[1, 1] = y; a[2, 2] = z
+    a[0, 0] = x
+    a[1, 1] = y
+    a[2, 2] = z
     return a
 
 def rotate(r, axis: tuple):
     a = np.eye(4, dtype="f4")
     c, s = np.cos(r), np.sin(r)
-    a[axis[0], axis[0]] = c; a[axis[0], axis[1]] = s
-    a[axis[1], axis[0]] = -s; a[axis[1], axis[1]] = c
+    a[axis[0], axis[0]] = c
+    a[axis[0], axis[1]] = s
+    a[axis[1], axis[0]] =-s
+    a[axis[1], axis[1]] = c
     return a
 
 def translate(x, y, z):
     a = np.eye(4, dtype="f4")
-    a[3, 0] = x; a[3, 1] = y; a[3, 2] = z
+    a[3, 0] = x
+    a[3, 1] = y
+    a[3, 2] = z
     return a
 
 class InputMonitor:
@@ -153,6 +161,7 @@ class Layer:
     def __init__(self, ctx, name, bbox, npdata):
         self.ctx = ctx
         self.name = name
+        self.bbox = bbox
 
         if npdata.dtype == np.uint8:
             npdata = npdata.astype('f4') / 255.0
@@ -192,7 +201,7 @@ class Layer:
             c, d_box, w_tex, q_tex,
             c, b,     0.0,   q_tex
         ], dtype='f4')
-
+        self.vertices = vertices
         self.vbo = self.ctx.buffer(vertices.tobytes())
         self.vao = None
 
@@ -217,9 +226,20 @@ class Keyboard:
             except Exception as e: print(f"Key load error {key_name}: {e}")
 
     def render(self, program, model_matrix, active_keys):
+        count = 0
+        mx = my = 0.0
         for key_name in active_keys:
+            # print(key_name)
             if key_name in self.key_layers:
+                v = self.key_layers[key_name].vertices
+                count += 1
+                mx += 0.25*(v[0] + v[4] + v[8] + v[12])
+                my += 0.25*(v[1] + v[5] + v[9] + v[13])
                 self.key_layers[key_name].render(program, model_matrix)
+        if count > 0:
+            mx /= count
+            my /= count
+            # print(mx, my)
 
 # === 4. MouseMapping ===
 class MouseMapping:
